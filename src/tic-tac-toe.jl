@@ -1,19 +1,19 @@
 # TODO: AI Player
-#          - Attributes: estimates dictionary
-#          - Attributes: epsilon value (probability to explore)
-#          - Attributes: step size, states, greedy
-#          - Initialize estimates---look up every state in hash table, if
+#          x Attributes: estimates dictionary
+#          x Attributes: epsilon value (probability to explore)
+#          x Attributes: step size, states, greedy
+#          x Initialize estimates---look up every state in hash table, if
 #            current player is the winner then estimate for that state
 #            keyed by the hash value is 1, if loser then 0, else 0.5 (and tie).
 #          - Update value estimation: calculate TD error for each previous
 #            state, then update estimation for state to be the step size times
 #            difference in value from next state to last.
-#          - Act: Get all possible next states (places the agent can move on the
+#          x Act: Get all possible next states (places the agent can move on the
 #            board), then with probability epsilon select the next state randomly,
 #            else choose randomly from the highest probability states.
 #          - Save/load policy: Save estimations dictionary to file
 # TODO: Human player
-#          - Implement act function: read keyboard input and
+#          x Implement act function: read keyboard input and
 # TODO: Training function
 #          - For a number of epochs, make two players play each other.
 #          - After each game, call the value estimation update function.
@@ -26,6 +26,11 @@ module TicTacToe
     INDICES = [(1,1) (1,2) (1,3); (2,1) (2,2) (2,3); (3,1) (3,2) (3,3)
         (1,1) (2,1) (3,1); (1,2) (2,2) (3,2); (1,3) (2,3) (3,3)
         (1,1) (2,2) (3,3); (1,3) (2,2) (3,1)]
+    KEYS = Dict(
+        "q" => (1,1), "w" => (1,2), "e" => (1,3),
+        "a" => (2,1), "s" => (2,2), "d" => (2,3),
+        "z" => (3,1), "x" => (3,2), "c" => (3,3)
+    )
     function board_from_index(i)
         reshape(parse.(Int8, split(lpad(string(i-1, base=3), 9, '0'), "")), 3, 3)
     end
@@ -109,20 +114,20 @@ module TicTacToe
         explore = rand() < player.epsilon
         next_state = explore ? states[rand(moves)] : states[moves[argmax(player.estimates[moves])]]
         move_idx = first(findall(state.data .!= next_state.data))
-        println("Player $(player.symbol) | Explore: $(explore) | Move: $(move_idx)")
+        println("Player $(player.symbol) | Explore: $(explore) | Move: Row $(move_idx[1]), Column $(move_idx[2])")
         return Int8(move_idx[1]), Int8(move_idx[2]), player.symbol
-        return Int8(1), Int8(1), Int8(2)
     end
     function act(player::HumanPlayer, state::State)
+        println("Your turn. Enter key [qweasdzxc]:")
         key = readline()
-        println(key, typeof(key))
-        return Int8(1), Int8(1), Int8(2)
+        i, j = KEYS[key]
+        return (Int8(i), Int8(j), player.symbol)
     end
     mutable struct Game
         p1::Player
         p2::Player
         state::State
-        Game() = new(AIPlayer(1), AIPlayer(2), State())
+        Game() = new(AIPlayer(1), HumanPlayer(2), State())
     end
     function play(game::Game)
         p_iter = Iterators.cycle((game.p1, game.p2))
@@ -133,12 +138,11 @@ module TicTacToe
             i, j, symbol = act(player, game.state)
             game.state = set_state(game.state, i, j, symbol)
             display(game.state.data)
-            # sleep(1)
         end
         println("Game over | Winner: Player $(game.state.winner) | $(N) moves.")
     end
     game = Game()
     init_estimations(game.p1, states)
-    init_estimations(game.p2, states)
+    # init_estimations(game.p2, states)
     play(game)
 end
