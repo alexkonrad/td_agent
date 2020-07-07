@@ -31,24 +31,49 @@ module TicTacToe
         winner::Int8
     end
 
+    INDICES = [
+        (1,1) (1,2) (1,3)
+        (2,1) (2,2) (2,3)
+        (3,1) (3,2) (3,3)
+        (1,1) (2,1) (3,1)
+        (1,2) (2,2) (3,2)
+        (1,3) (2,3) (3,3)
+        (1,1) (2,2) (3,3)
+        (1,3) (2,2) (3,1)
+    ]
+
     function board_from_index(i)
-        reshape(parse.(Int, split(lpad(string(i-1, base=3), 9, '0'), "")), 3, 3)
+        reshape(parse.(Int8, split(lpad(string(i-1, base=3), 9, '0'), "")), 3, 3)
     end
 
     function is_over(data::Array{Int8,2})
-        winning = all_lines(data) |>
-            sums->filter(!iszero, sums) |>
-            sums->filter(x->x%3==0, sums) |>
-            x -> div.(x, 3)
-        if length(winning) == 0
-            return false, -1
+        for (i1, i2, i3) in eachrow(INDICES)
+            cells = [data[i1...], data[i2...], data[i3...]]
+            if all(x -> x == cells[1] && cells[1] != 0, cells)
+                return true, data[i1...]
+            end
         end
-        return true, winning[1]
+        return false, -1
     end
+
+    # function is_over(data::Array{Int8,2})
+    #     winning = all_lines(data) |>
+    #         sums->filter(!iszero, sums) |>
+    #         sums->filter(all(y->y==x[1], sums), sums) |>
+    #         x -> div.(x, 3)
+    #     if length(winning) == 0
+    #         return false, -1
+    #     end
+    #     return true, winning[1]
+    # end
 
     function hash(data::Array{Int8,2})
         parse(Int, join(string.(vec(data))), base=3)+1
         reduce((acc,x)->3*acc+x, vec(data); init=0)+1
+    end
+
+    function all_lines(data::Array{Int8,2})
+
     end
 
     function all_lines(data::Array{Int8,2})
@@ -145,11 +170,11 @@ module TicTacToe
     end
     function play(game::Game)
         p_iter = Iterators.cycle((game.p1, game.p2))
-        while !states[game.state.hash].over
-            player, p_iter = Iterators.peel(p_iter)
-            i, j, symbol = act(player, game.state)
-            # game.state = set_state(game.state, i, j, symbol)
-        end
+        # while !states[game.state.hash].over
+        #     player, p_iter = Iterators.peel(p_iter)
+        #     i, j, symbol = act(player, game.state)
+        # game.state = set_state(game.state, i, j, symbol)
+        # end
     end
     game = Game()
     init_estimations(game.p1, states)
