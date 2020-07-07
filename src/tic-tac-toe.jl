@@ -22,30 +22,34 @@
 # TODO: Play function (human player)
 
 module TicTacToe
-    using LinearAlgebra: Diagonal
-
-    struct State
-        data::Array{Int8,2}
-        hash::Int16
-        over::Bool
-        winner::Int8
-    end
-
-    INDICES = [
-        (1,1) (1,2) (1,3)
-        (2,1) (2,2) (2,3)
-        (3,1) (3,2) (3,3)
-        (1,1) (2,1) (3,1)
-        (1,2) (2,2) (3,2)
-        (1,3) (2,3) (3,3)
-        (1,1) (2,2) (3,3)
-        (1,3) (2,2) (3,1)
-    ]
-
+    using Random: shuffle!
+    INDICES = [(1,1) (1,2) (1,3); (2,1) (2,2) (2,3); (3,1) (3,2) (3,3)
+        (1,1) (2,1) (3,1); (1,2) (2,2) (3,2); (1,3) (2,3) (3,3)
+        (1,1) (2,2) (3,3); (1,3) (2,2) (3,1)]
     function board_from_index(i)
         reshape(parse.(Int8, split(lpad(string(i-1, base=3), 9, '0'), "")), 3, 3)
     end
-
+    struct State
+        data::Array{Int8,2}
+        hash::Int16
+        moves1::Vector{Int16}
+        moves2::Vector{Int16}
+        over::Bool
+        winner::Int8
+    end
+    function legal_moves_from_board(data::Array{Int8,2}, symbol::Int8)
+        moves = Int16[]
+        for i = 1:3
+            for j = 1:3
+                if data[i,j] == 0
+                    new_board = copy(data)
+                    new_board[i,j] = symbol
+                    push!(moves, hash(new_board))
+                end
+            end
+        end
+        moves
+    end
     function is_over(data::Array{Int8,2})
         for (i1, i2, i3) in eachrow(INDICES)
             cells = [data[i1...], data[i2...], data[i3...]]
@@ -55,70 +59,22 @@ module TicTacToe
         end
         return false, -1
     end
-
-    # function is_over(data::Array{Int8,2})
-    #     winning = all_lines(data) |>
-    #         sums->filter(!iszero, sums) |>
-    #         sums->filter(all(y->y==x[1], sums), sums) |>
-    #         x -> div.(x, 3)
-    #     if length(winning) == 0
-    #         return false, -1
-    #     end
-    #     return true, winning[1]
-    # end
-
     function hash(data::Array{Int8,2})
-        parse(Int, join(string.(vec(data))), base=3)+1
+        # parse(Int, join(string.(vec(data))), base=3)+1
         reduce((acc,x)->3*acc+x, vec(data); init=0)+1
     end
-
-    function all_lines(data::Array{Int8,2})
-
-    end
-
-    function all_lines(data::Array{Int8,2})
-        vcat(sum(data, dims=1)', sum(data, dims=2),
-            sum(Diagonal(data)), sum(Diagonal(reverse(data, dims=2))))
-    end
-
     function State(data::Array{Int8,2}=zeros(Int8,3,3))
-        State(data, hash(data), is_over(data)...)
+        State(data, hash(data),
+            legal_moves_from_board(data, Int8(1)),
+            legal_moves_from_board(data, Int8(2)),
+            is_over(data)...)
     end
-
-    function emptycell_indices(state::State)
-        indices = Iterators.product(UnitRange{Int8}(1,3), UnitRange{Int8}(1,3))
-        emptycells(i) = Iterators.filter(x -> iszero(state.data[x...]), i)
-        indices |> emptycells
-    end
-
-    function next_state!(current_state, current_symbol, all_states)
-        for (i,j) in emptycell_indices(current_state)
-            new_state = set_state(current_state, i, j, current_symbol)
-            if !isassigned(all_states, new_state.hash)
-                all_states[new_state.hash] = new_state
-                next_symbol::Int8 = current_symbol == 1 ? 2 : 1
-                next_state!(new_state, next_symbol, all_states)
-            end
-        end
-    end
-
     function set_state(cur_state::State, i::Int8, j::Int8, symbol::Int8)
         data = copy(cur_state.data)
         data[i,j] = symbol
         State(data)
     end
-
-    function get_states()
-        all = Vector{State}(undef, 3^9)
-        symbol::Int8 = 1
-        state = State()
-        all[state.hash] = state
-        next_state!(state, symbol, all)
-        all
-    end
-
     states = map(i -> State(board_from_index(i)), 1:3^9)
-
     abstract type Player
     end
     mutable struct AIPlayer <: Player
@@ -128,53 +84,58 @@ module TicTacToe
         step_size::Float64
         states::Vector{State}
         greedy::Vector{State}
-        AIPlayer(epsilon=0.1, step_size=0.1) = (x = new(); x.epsilon = epsilon; x.step_size = step_size; x)
+        function AIPlayer(symbol, epsilon=0.1, step_size=0.1)
+            x = new()
+            x.symbol = symbol
+            x.epsilon = epsilon
+            x.step_size = step_size
+            x
+        end
     end
     struct HumanPlayer <:Player
         symbol::Int8
     end
     function init_estimations(player::Player, states::Vector{State})
         player.estimates = ones(3^9) / 2
-        # final_states = filter((hash, S) -> S.over, states)
-        println(states[1:100])
-        for i in eachindex(states[1:100])
-            if isassigned(states, i)
-                println(states[i])
+        for i in eachindex(states)
+            if states[i].over
+                player.estimates[i] = states[i].winner == player.symbol ? 1 : 0
             end
         end
-        # winning_idx = [state.winner == player.symbol for state in states]
-        # println(winning_idx)
-        # for (hash, state) in final_states
-        #     println(state.over)
-        # end
-        # for i in 0:3^9
-        #     println(i in states.keys)
-        #     if states.i.over == true
-        #         # TODO: do something for stalemate
-        #         if states[i].winner == player.symbol
-        #             player.estimates[i] = 1
-        #         elseif states[i].winner != player.symbol
-        #             player.estimates[i] = 0
-        #         end
-        #     end
-        # end
     end
-    function act(player::Player, state::State)
+    function act(player::AIPlayer, state::State)
+        moves = player.symbol == 1 ? state.moves1 : state.moves2
+        shuffle!(moves)
+        explore = rand() < player.epsilon
+        next_state = explore ? states[rand(moves)] : states[moves[argmax(player.estimates[moves])]]
+        move_idx = first(findall(state.data .!= next_state.data))
+        println("Player $(player.symbol) | Explore: $(explore) | Move: $(move_idx)")
+        return Int8(move_idx[1]), Int8(move_idx[2]), player.symbol
         return Int8(1), Int8(1), Int8(2)
     end
-    struct Game
+    function act(player::HumanPlayer, state::State)
+        key = readline()
+        println(key, typeof(key))
+        return Int8(1), Int8(1), Int8(2)
+    end
+    mutable struct Game
         p1::Player
         p2::Player
         state::State
-        Game() = new(AIPlayer(), AIPlayer(), State())
+        Game() = new(AIPlayer(1), AIPlayer(2), State())
     end
     function play(game::Game)
         p_iter = Iterators.cycle((game.p1, game.p2))
-        # while !states[game.state.hash].over
-        #     player, p_iter = Iterators.peel(p_iter)
-        #     i, j, symbol = act(player, game.state)
-        # game.state = set_state(game.state, i, j, symbol)
-        # end
+        N = 0
+        while !states[game.state.hash].over
+            N += 1
+            player, p_iter = Iterators.peel(p_iter)
+            i, j, symbol = act(player, game.state)
+            game.state = set_state(game.state, i, j, symbol)
+            display(game.state.data)
+            # sleep(1)
+        end
+        println("Game over | Winner: Player $(game.state.winner) | $(N) moves.")
     end
     game = Game()
     init_estimations(game.p1, states)
