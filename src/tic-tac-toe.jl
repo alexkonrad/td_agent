@@ -23,6 +23,7 @@
 
 module TicTacToe
     using Random: shuffle!
+    using JLD
     INDICES = [(1,1) (1,2) (1,3); (2,1) (2,2) (2,3); (3,1) (3,2) (3,3)
         (1,1) (2,1) (3,1); (1,2) (2,2) (3,2); (1,3) (2,3) (3,3)
         (1,1) (2,2) (3,3); (1,3) (2,2) (3,1)]
@@ -62,6 +63,9 @@ module TicTacToe
                 return true, data[i1...]
             end
         end
+        if all(x -> x != 0, data)
+            return true, -1
+        end
         return false, -1
     end
     function hash(data::Array{Int8,2})
@@ -88,24 +92,56 @@ module TicTacToe
         epsilon::Float64
         step_size::Float64
         states::Vector{State}
-        greedy::Vector{State}
+        greedy::Vector{Bool}
         function AIPlayer(symbol, epsilon=0.1, step_size=0.1)
             x = new()
             x.symbol = symbol
             x.epsilon = epsilon
             x.step_size = step_size
+            x.states = State[]
+            x.greedy = Bool[]
             x
         end
     end
     struct HumanPlayer <:Player
         symbol::Int8
     end
-    function init_estimations(player::Player, states::Vector{State})
+    function set_player_state!(player::Player, state::State)
+        if isa(player, AIPlayer)
+            push!(player.states, state)
+        end
+    end
+    function init_estimates!(player::Player, states::Vector{State})
         player.estimates = ones(3^9) / 2
         for i in eachindex(states)
             if states[i].over
-                player.estimates[i] = states[i].winner == player.symbol ? 1 : 0
+                if states[i].winner == player.symbol
+                    player.estimates[i] = 1
+                elseif states[i].winner > 0
+                    player.estimates[i] = 0
+                end
             end
+        end
+    end
+    function update_estimates!(player::Player)
+        for i in reverse(eachindex(player.states[1:end-1]))
+            state = player.states[i]
+            next_state = player.states[i+1]
+            state_val_estim = player.estimates[state.hash]
+            next_val_estim = player.estimates[next_state.hash]
+            val_diff = next_val_estim - state_val_estim
+            player.estimates[state.hash] += player.step_size * val_diff
+        end
+    end
+    function reset!(player::Player)
+        player.states = State[]
+    end
+    function load_policy!(player::Player)
+        p = load("policy.jld")
+        if player.symbol == 1
+            player.estimates = d.p1
+        elseif player.symbol == 2
+            player.estimates = d.p2
         end
     end
     function act(player::AIPlayer, state::State)
@@ -114,7 +150,7 @@ module TicTacToe
         explore = rand() < player.epsilon
         next_state = explore ? states[rand(moves)] : states[moves[argmax(player.estimates[moves])]]
         move_idx = first(findall(state.data .!= next_state.data))
-        println("Player $(player.symbol) | Explore: $(explore) | Move: Row $(move_idx[1]), Column $(move_idx[2])")
+        # println("Player $(player.symbol) | Explore: $(explore) | Move: Row $(move_idx[1]), Column $(move_idx[2])")
         return Int8(move_idx[1]), Int8(move_idx[2]), player.symbol
     end
     function act(player::HumanPlayer, state::State)
@@ -127,22 +163,79 @@ module TicTacToe
         p1::Player
         p2::Player
         state::State
-        Game() = new(AIPlayer(1), HumanPlayer(2), State())
+        function Game(human::Bool)
+            game = new()
+            if human
+                game.p1 = HumanPlayer(Int8(1))
+            else
+                game.p1 = AIPlayer(Int8(1))
+                init_estimates!(game.p1, states)
+            end
+            game.p2 = AIPlayer(Int8(2))
+            init_estimates!(game.p2, states)
+            game.state = State()
+            game
+        end
+    end
+    function train(epochs=1e2)
+        println("Training...")
+        player1_wins = 0
+        player2_wins = 0
+        for i in 1:epochs
+            game = Game(false)
+            winner = play(game)
+            if winner == 1
+                player1_wins += 1
+            elseif winner == 2
+                player2_wins += 1
+            end
+            if i % 50 == 0
+                player1_winrate = round(player1_wins / i, sigdigits=2)
+                player2_winrate = round(player2_wins / i, sigdigits=2)
+                println("Epoch $(i):\t",
+                    "Player 1 Win-rate: $(player1_winrate)\t",
+                    "Player 2 Win-rate: $(player2_winrate)")
+            end
+            update_estimates!(game.p1)
+            update_estimates!(game.p2)
+            reset!(game.p1)
+            reset!(game.p2)
+            save("policy.jld", "p1", game.p1.estimates, "p2", game.p2.estimates)
+        end
+    end
+    function compete(turns)
+        game = Game()
+        load_policy!(game.p1)
+        load_policy!(game.p2)
+        player1_win = 0
+        player2_win = 0
+        for i in 1:turns
+            winner = play(game)
+            if winner == 1
+                player1_win += 1
+            elseif winner == 2
+                player2_win += 1
+            end
+        end
+        player1_winrate = round(player1_win / turns, 2)
+        player2_winrate = round(player2_win / turns, 2)
+        println("$(turns) Turns, ",
+            "Player 1 winrate $(player1_winrate), ",
+            "Player 2 winrate $(player2_winrate)")
     end
     function play(game::Game)
         p_iter = Iterators.cycle((game.p1, game.p2))
         N = 0
-        while !states[game.state.hash].over
+        while !game.state.over
             N += 1
             player, p_iter = Iterators.peel(p_iter)
+            set_player_state!(player, game.state)
             i, j, symbol = act(player, game.state)
             game.state = set_state(game.state, i, j, symbol)
-            display(game.state.data)
+            # display(game.state.data)
         end
-        println("Game over | Winner: Player $(game.state.winner) | $(N) moves.")
+        # println("Game over | Winner: Player $(game.state.winner) | $(N) moves.")
+        return game.state.winner
     end
-    game = Game()
-    init_estimations(game.p1, states)
-    # init_estimations(game.p2, states)
-    play(game)
+    train(1e5)
 end
