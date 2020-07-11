@@ -24,6 +24,7 @@
 module TicTacToe
     using Random: shuffle!
     using JLD
+    using PlotlyJS
     INDICES = [(1,1) (1,2) (1,3); (2,1) (2,2) (2,3); (3,1) (3,2) (3,3)
         (1,1) (2,1) (3,1); (1,2) (2,2) (3,2); (1,3) (2,3) (3,3)
         (1,1) (2,2) (3,3); (1,3) (2,2) (3,1)]
@@ -136,13 +137,10 @@ module TicTacToe
     function reset!(player::Player)
         player.states = State[]
     end
-    function load_policy!(player::Player)
-        p = load("policy.jld")
-        if player.symbol == 1
-            player.estimates = d.p1
-        elseif player.symbol == 2
-            player.estimates = d.p2
-        end
+    function load_policy()
+        policy = load("policy.jld")
+
+        return policy["p1"], policy["p2"]
     end
     function act(player::AIPlayer, state::State)
         moves = player.symbol == 1 ? state.moves1 : state.moves2
@@ -154,6 +152,7 @@ module TicTacToe
         return Int8(move_idx[1]), Int8(move_idx[2]), player.symbol
     end
     function act(player::HumanPlayer, state::State)
+        display(state.data)
         println("Your turn. Enter key [qweasdzxc]:")
         key = readline()
         i, j = KEYS[key]
@@ -176,6 +175,17 @@ module TicTacToe
             game.state = State()
             game
         end
+    end
+    function reset!(player::AIPlayer)
+        player.states = State[]
+    end
+    function reset!(player::HumanPlayer)
+        # Noop
+    end
+    function reset!(game::Game)
+        game.state = State()
+        reset!(game.p1)
+        reset!(game.p2)
     end
     function train(epochs=1e2)
         println("Training...")
@@ -204,9 +214,8 @@ module TicTacToe
         end
     end
     function compete(turns)
-        game = Game()
-        load_policy!(game.p1)
-        load_policy!(game.p2)
+        game = Game(false)
+        game.p1.estimates, game.p2.estimates = load_policy()
         player1_win = 0
         player2_win = 0
         for i in 1:turns
@@ -217,25 +226,38 @@ module TicTacToe
                 player2_win += 1
             end
         end
-        player1_winrate = round(player1_win / turns, 2)
-        player2_winrate = round(player2_win / turns, 2)
+        player1_winrate = round(player1_win / turns, sigdigits=2)
+        player2_winrate = round(player2_win / turns, sigdigits=2)
         println("$(turns) Turns, ",
+            "$(player1_win) $(player2_win)",
             "Player 1 winrate $(player1_winrate), ",
             "Player 2 winrate $(player2_winrate)")
     end
-    function play(game::Game)
+    function play()
+        game = Game(true)
+        x, game.p2.estimates = load_policy()
+        winner = play(game; plot_board=true)
+        display(game.state.data)
+        println("Game over. Winner is player $(winner)")
+    end
+    function play(game::Game; plot_board=false)
         p_iter = Iterators.cycle((game.p1, game.p2))
         N = 0
+        reset!(game)
         while !game.state.over
             N += 1
             player, p_iter = Iterators.peel(p_iter)
             set_player_state!(player, game.state)
             i, j, symbol = act(player, game.state)
             game.state = set_state(game.state, i, j, symbol)
-            # display(game.state.data)
+            if plot_board
+                display(plot(heatmap(z=rotr90(game.state.data))))
+            end
         end
         # println("Game over | Winner: Player $(game.state.winner) | $(N) moves.")
         return game.state.winner
     end
-    train(1e5)
+    # train(1e5)
+    # compete(1e4)
+    play()
 end
